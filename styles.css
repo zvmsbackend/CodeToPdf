@@ -1,0 +1,79 @@
+body {
+  font-family: "Microsoft YaHei", Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+h1 { font-size: 28px; }
+h2 { font-size: 24px; }
+
+/* 文件标题和代码块容器 */
+.file-container {
+  page-break-inside: avoid;  /* 防止容器内部分页 */
+  page-break-before: always; /* 每个文件从新页开始 */
+}
+
+/* 第一个文件容器不分页 */
+h2 + .file-container {
+  page-break-before: avoid;
+}
+
+h3 { 
+  font-size: 20px;
+  margin-bottom: 1em;
+}
+
+pre {
+  font-size: 12px;
+  background-color: #f6f8fa;
+  padding: 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+code {
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+}
+
+a {
+  color: #0366d6;
+  text-decoration: none;
+}
+
+.directory-tree {
+  font-size: 16px;
+  line-height: 1.8;
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  white-space: pre;
+  page-break-after: always;
+}
+
+/* 代码高亮主题 */
+.hljs {
+  background: #f6f8fa;
+  color: #24292e;
+}
+
+.hljs-keyword { color: #d73a49; }
+.hljs-string { color: #032f62; }
+.hljs-comment { color: #6a737d; }
+.hljs-function { color: #6f42c1; }
+.hljs-number { color: #005cc5; }
+.hljs-operator { color: #d73a49; }
+.hljs-class { color: #6f42c1; }
+.hljs-title { color: #6f42c1; }
+.hljs-params { color: #24292e; }
+.hljs-built_in { color: #005cc5; }
+
+@media print {
+  pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  a {
+    color: #000;
+  }
+} 
