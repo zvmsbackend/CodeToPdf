@@ -71,7 +71,6 @@ let execShellCmd entrypoint args =
                 ProcessStartInfo(
                     FileName = entrypoint,
                     Arguments = args,
-                    RedirectStandardOutput = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 )
@@ -80,14 +79,13 @@ let execShellCmd entrypoint args =
     proc.Start() |> ignore
     proc.WaitForExit()
 
-let cloneRepo repoSrc =
-    printfn "Cloning repository: %s ..." repoSrc
+let cloneRepo host repo =
+    printfn "Cloning repository: %s/%s ..." host repo
 
-    let tmpDir =
-        Path.Combine(Directory.GetCurrentDirectory(), repoSrc.Replace("/", "-"))
+    let tmpDir = Path.Combine(Directory.GetCurrentDirectory(), repo.Replace("/", "-"))
 
     let clone () =
-        execShellCmd "git" $"clone https://github.com/{repoSrc}.git {tmpDir}" |> ignore
+        execShellCmd "git" $"clone https://{host}/{repo}.git {tmpDir}" |> ignore
 
     try
         if Path.Exists(tmpDir) then
@@ -214,8 +212,8 @@ let generateHtml stylesheet excluded getLanguage dir title =
     string result
 
 type Input =
-    | Local of string
-    | GitHub of string * removeDir: bool
+    | Local of path: string
+    | Remote of host: string * repo: string * removeDir: bool
 
 type Output =
     | Html
@@ -255,29 +253,30 @@ let mkArgs builder : Result<Args, string> =
     match builder.Input with
     | None -> Error "expect input path"
     | Some(Local _) when builder.RemoveClonedRepo -> Error "-u must come with a github repo"
-    | Some(GitHub(repo, _)) -> mk (GitHub(repo, builder.RemoveClonedRepo))
+    | Some(Remote(host, repo, _)) -> mk (Remote(host, repo, builder.RemoveClonedRepo))
     | Some input -> mk input
 
-let parseArgv argv =
+let localOrRemote =
     let githubPatterns =
-        [ @"^https://github\.com/([^/]+\/[^/]+)$"
-          @"^git@github\.com:([^/]+\/[^/]+)\.git$" ]
+        [ @"^https://([a-zA-Z\d\.]+)/([^/]+\/[^/]+)$"
+          @"^git@([a-zA-Z\d\.]+):([^/]+\/[^/]+)\.git$" ]
         |> List.map Regex
 
-    let localOrGithub string =
+    fun string ->
         let rec iter (githubPatterns: Regex list) =
             match githubPatterns with
             | pattern :: rest ->
                 let m = pattern.Match(string)
 
                 if m.Success then
-                    GitHub(m.Groups[1].Value.TrimEnd(".git".ToCharArray()), false)
+                    Remote(m.Groups[1].Value, m.Groups[2].Value.Replace(".git", ""), false)
                 else
                     iter rest
             | [] -> Local string
 
         iter githubPatterns
 
+let parseArgv argv =
     let (|Output|_|) arg =
         match arg with
         | "-html" -> Some Html
@@ -343,7 +342,7 @@ let parseArgv argv =
                     | None ->
                         iter
                             { builder with
-                                Input = Some(localOrGithub arg) }
+                                Input = Some(localOrRemote arg) }
 
     { Argv = List.ofSeq argv
       Reading = None
@@ -370,18 +369,18 @@ let findGitignore path =
 let prepareDirectory input =
     match input with
     | Local path -> findGitignore path
-    | GitHub(repo, _) -> cloneRepo repo |> Result.bind findGitignore
+    | Remote(host, repo, _) -> cloneRepo host repo |> Result.bind findGitignore
 
 let mkTitle input =
     match input with
     | Local path -> $"Local directory: {path}"
-    | GitHub(repo, _) -> $"GitHub: {repo}"
+    | Remote(host, repo, _) -> $"Remote: {host}/{repo}"
 
 let save html input output =
     let barePath =
         match input with
         | Local path -> path
-        | GitHub(repo, _) -> repo.Replace("/", "-")
+        | Remote(_, repo, _) -> repo.Replace("/", "-")
 
     try
         match output with
@@ -418,7 +417,7 @@ do
 
         do!
             match args.Input with
-            | GitHub(_, true) -> tryRmdir dir 3
+            | Remote(_, _, true) -> tryRmdir dir 3
             | _ -> Ok()
 
         return ()
