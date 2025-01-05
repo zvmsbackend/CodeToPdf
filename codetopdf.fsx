@@ -2,6 +2,7 @@
 #r "nuget: ceTe.DynamicPDF.Converter.NET"
 #r "nuget: ceTe.DynamicPDF.CoreSuite.NET"
 #r "nuget: ceTe.DynamicPDF.HtmlConverter.NET"
+#r "nuget: Microsoft.Playwright"
 #r "nuget: Jering.Web.SyntaxHighlighters.HighlightJS"
 
 open System
@@ -16,6 +17,7 @@ open System.Text.RegularExpressions
 
 open MAB.DotIgnore
 open ceTe.DynamicPDF.Conversion
+open Microsoft.Playwright
 open Jering.Web.SyntaxHighlighters.HighlightJS
 
 type ResultBuilder() =
@@ -218,6 +220,7 @@ type Input =
 type Output =
     | Html
     | Pdf
+    | PdfUsingBrowser
 
 type Args =
     { LanguageMapPath: string
@@ -336,6 +339,15 @@ let parseArgv argv =
                         Error "duplicate -u option"
                     else
                         iter { builder with RemoveClonedRepo = true }
+                | "-b" ->
+                    match builder.Output with
+                    | Some Pdf
+                    | None ->
+                        iter
+                            { builder with
+                                Output = Some PdfUsingBrowser }
+                    | Some Html -> Error "-b mustn't be used with -html"
+                    | Some PdfUsingBrowser -> Error "duplicate -b option"
                 | _ ->
                     match builder.Input with
                     | Some _ -> Error "intput argument specified twice"
@@ -384,14 +396,26 @@ let save html input output =
 
     try
         match output with
-        | Html ->
-            let name = barePath + ".html"
-            File.WriteAllText(name, html)
+        | Html -> File.WriteAllText(barePath + ".html", html)
         | Pdf ->
-            let name = barePath + ".pdf"
             let options = HtmlConversionOptions(false)
             let converter = HtmlConverter(html, options)
-            converter.Convert(name)
+            converter.Convert(barePath + ".pdf")
+        | PdfUsingBrowser ->
+            File.WriteAllText(barePath + ".html", html)
+
+            task {
+                use! playwright = Playwright.CreateAsync()
+                let! browser = playwright.Chromium.LaunchAsync(BrowserTypeLaunchOptions(Headless = true))
+                let! page = browser.NewPageAsync()
+                let! _ = page.GotoAsync($"""file:///{barePath}.html""")
+                let! _ = page.PdfAsync(PagePdfOptions(Path = barePath + ".pdf", Format = "A4"))
+                do! browser.CloseAsync()
+                return ()
+            }
+            |> _.Result
+
+            File.Delete(barePath + ".html")
 
         Ok()
     with ex ->
