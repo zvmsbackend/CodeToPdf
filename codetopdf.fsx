@@ -227,12 +227,14 @@ type Args =
       StylesheetPath: string
       IgnorePath: string option
       Input: Input
-      Output: Output }
+      Output: Output
+      OutFile: string option }
 
 type Reading =
     | ReadingLanguageMap
     | ReadingStylesheet
     | ReadingIgnore
+    | ReadingOutFile
 
 type ArgsBuilder =
     { Argv: string list
@@ -242,7 +244,8 @@ type ArgsBuilder =
       RemoveClonedRepo: bool
       IgnorePath: string option
       Input: Input option
-      Output: Output option }
+      Output: Output option
+      OutFile: string option }
 
 let mkArgs builder : Result<Args, string> =
     let mk input =
@@ -250,7 +253,8 @@ let mkArgs builder : Result<Args, string> =
           StylesheetPath = builder.StylesheetPath |> Option.defaultValue "styles.css"
           IgnorePath = builder.IgnorePath
           Input = input
-          Output = builder.Output |> Option.defaultValue Pdf }
+          Output = builder.Output |> Option.defaultValue Pdf
+          OutFile = builder.OutFile }
         |> Ok
 
     match builder.Input with
@@ -296,24 +300,20 @@ let parseArgv argv =
             let builder = { builder with Argv = rest }
 
             match builder.Reading with
-            | Some ReadingLanguageMap ->
-                match builder.LanguageMapPath with
-                | Some _ -> Error "duplicate -map argument"
-                | None ->
+            | Some reading ->
+                let builder = { builder with Reading = None }
+
+                match reading with
+                | ReadingLanguageMap ->
                     iter
                         { builder with
                             LanguageMapPath = Some arg }
-            | Some ReadingStylesheet ->
-                match builder.StylesheetPath with
-                | Some _ -> Error "duplicte -style argument"
-                | None ->
+                | ReadingStylesheet ->
                     iter
                         { builder with
                             StylesheetPath = Some arg }
-            | Some ReadingIgnore ->
-                match builder.IgnorePath with
-                | Some _ -> Error "duplicate -ignore argument"
-                | None -> iter { builder with IgnorePath = Some arg }
+                | ReadingIgnore -> iter { builder with IgnorePath = Some arg }
+                | ReadingOutFile -> iter { builder with OutFile = Some arg }
             | None ->
                 match arg with
                 | Output format ->
@@ -334,6 +334,13 @@ let parseArgv argv =
                         iter
                             { builder with
                                 Reading = Some ReadingStylesheet }
+                | "-o" ->
+                    match builder.OutFile with
+                    | Some _ -> Error "output filename specified twice"
+                    | None ->
+                        iter
+                            { builder with
+                                Reading = Some ReadingOutFile }
                 | "-u" ->
                     if builder.RemoveClonedRepo then
                         Error "duplicate -u option"
@@ -363,7 +370,8 @@ let parseArgv argv =
       RemoveClonedRepo = false
       IgnorePath = None
       Input = None
-      Output = None }
+      Output = None
+      OutFile = None }
     |> iter
 
 let findGitignore path =
@@ -388,11 +396,13 @@ let mkTitle input =
     | Local path -> $"Local directory: {path}"
     | Remote(host, repo, _) -> $"Remote: {host}/{repo}"
 
-let save html input output =
+let save html outFile input output =
     let barePath =
-        match input with
-        | Local path -> path
-        | Remote(_, repo, _) -> repo.Replace("/", "-")
+        outFile
+        |> Option.defaultWith (fun () ->
+            match input with
+            | Local path -> path
+            | Remote(_, repo, _) -> repo.Replace("/", "-"))
 
     try
         match output with
@@ -437,7 +447,7 @@ do
         let html =
             generateHtml stylesheet excluded (getLanguage languageMap) dir (mkTitle args.Input)
 
-        do! save html args.Input args.Output
+        do! save html args.OutFile args.Input args.Output
 
         do!
             match args.Input with
