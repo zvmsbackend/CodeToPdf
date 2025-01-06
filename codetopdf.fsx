@@ -230,6 +230,10 @@ type Args =
       Output: Output
       OutFile: string option }
 
+type Target =
+    | GetHelp
+    | Work of Args
+
 type Reading =
     | ReadingLanguageMap
     | ReadingStylesheet
@@ -290,12 +294,12 @@ let parseArgv argv =
         | "-pdf" -> Some Pdf
         | _ -> None
 
-    let rec iter builder : Result<Args, string> =
+    let rec iter builder : Result<Target, string> =
         match builder.Argv with
         | [] ->
             match builder.Reading with
             | Some _ -> Error "expect more arguments"
-            | None -> mkArgs builder
+            | None -> mkArgs builder |> Result.map Work
         | arg :: rest ->
             let builder = { builder with Argv = rest }
 
@@ -355,6 +359,7 @@ let parseArgv argv =
                                 Output = Some PdfUsingBrowser }
                     | Some Html -> Error "-b mustn't be used with -html"
                     | Some PdfUsingBrowser -> Error "duplicate -b option"
+                | "-help" -> Ok GetHelp
                 | _ ->
                     match builder.Input with
                     | Some _ -> Error "intput argument specified twice"
@@ -433,12 +438,26 @@ let save html outFile input output =
 
 let runResult =
     function
-    | Ok() -> printfn "Ok"
+    | Ok() -> ()
     | Error message -> eprintfn "Error: %s" message
 
-do
+[<Literal>]
+let help =
+    """dotnet fsi codetopdf <local-path/remote-repo> [-h] [-u] [-html] [-pdf] [-b] [-map <path>] [-style <path>] [-ignore <path>] [-o <path-without-extension>]
+    -local-path: a path
+    -github-repo: https://<host>/<owner>/<repo> / git@<host>:<owner>/<repo>.git
+    -help: display this message. omit any other option
+    -u: remove cloned repo after generation. used in conjunction with <remote-repo>
+    -html: generate html output
+    -pdf: generate pdf output, which is the default
+    -b: generate pdf using a browser
+    -map: specify a json file use to determine file's language from its extension. default to "extmap.json"
+    -style: specify a css file injected into the output. default to "styles.css"
+    -ignore: specify a .gitignore-like file to exclude unwanted files. default to directory's .gitignore (if it has)
+    -o: output the production file to path-without-extension + .html/.pdf"""
+
+let work (args: Args) =
     result {
-        let! args = parseArgv (Environment.GetCommandLineArgs()[2..]) // Ignore "fsi codetopdf.fsx".
         let! languageMap = loadLanguageMap args.LanguageMapPath
         let! stylesheet = loadStylesheet args.StylesheetPath
         let! dir, gitignorePath = prepareDirectory args.Input
@@ -454,6 +473,17 @@ do
             | Remote(_, _, true) -> tryRmdir dir 3
             | _ -> Ok()
 
+        printfn "Ok"
+
         return ()
+    }
+
+do
+    result {
+        match! parseArgv (Environment.GetCommandLineArgs()[2..]) with // Ignore "fsi codetopdf.fsx".
+        | Work args -> return! work args
+        | GetHelp ->
+            printfn "%s" help
+            return ()
     }
     |> runResult

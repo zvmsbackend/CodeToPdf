@@ -10,9 +10,10 @@ A little script based on [ouuyu's work](https://github.com/ouuyu/code-to-pdf) wi
 ## Usage
 
 ```bash
-dotnet fsi codetopdf <local-path/remote-repo> [-u] [-html] [-pdf] [-b] [-map <path>] [-style <path>] [-ignore <path>] [-o <path-without-extension>]
+dotnet fsi codetopdf <local-path/remote-repo> [-h] [-u] [-html] [-pdf] [-b] [-map <path>] [-style <path>] [-ignore <path>] [-o <path-without-extension>]
     -local-path: a path
     -github-repo: https://<host>/<owner>/<repo> / git@<host>:<owner>/<repo>.git
+    -help: display this message. omit any other option
     -u: remove cloned repo after generation. used in conjunction with <remote-repo>
     -html: generate html output
     -pdf: generate pdf output, which is the default
