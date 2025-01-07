@@ -27,9 +27,6 @@ type ResultBuilder() =
 
 let result = ResultBuilder()
 
-[<Literal>]
-let MaxFileSize = 100 * 1024
-
 let highlight code language =
     StaticHighlightJSService.HighlightAsync(code, language).Result
 
@@ -119,7 +116,7 @@ let rec generateDirectoryTrees excluded (dir: DirectoryInfo) =
 and generateDirectoryTree excluded dir =
     Node(dir.Name, generateDirectoryTrees excluded dir)
 
-let renderDirectoryTree (output: StringBuilder) trees =
+let renderDirectoryTree maxFileSize (output: StringBuilder) trees =
     let rec recurse prefix trees =
         let count = List.length trees
 
@@ -134,7 +131,7 @@ let renderDirectoryTree (output: StringBuilder) trees =
                 recurse (prefix + (if isLast then "    " else "|    ")) children
             | Tip(fileInfo: FileInfo) ->
                 let string =
-                    if fileInfo.Length <= MaxFileSize then
+                    if fileInfo.Length <= maxFileSize then
                         let fileId = generateFileId fileInfo.FullName
                         $"{prefix}{connector}<a href=\"#{fileId}\">{fileInfo.Name}</a>\n"
                     else
@@ -175,7 +172,7 @@ let mkExcluded (ignorePath: string option) =
         |> Result.map (fun ignore path isDirectory -> ignore.IsIgnored(path, isDirectory, null) || path = ".git")
     | None -> Ok(fun path _ -> path = ".git")
 
-let generateHtml stylesheet excluded getLanguage dir title =
+let generateHtml maxFileSize stylesheet excluded getLanguage dir title =
     let result = StringBuilder()
 
     let directoryTrees = generateDirectoryTrees excluded (DirectoryInfo(dir))
@@ -188,13 +185,13 @@ let generateHtml stylesheet excluded getLanguage dir title =
         .Append("""<h2>Directory Structure</h2><div class="directory-tree">""")
     |> ignore
 
-    renderDirectoryTree result directoryTrees
+    renderDirectoryTree maxFileSize result directoryTrees
 
     result.Append("</div>").Append("<h2>Contents</h2>") |> ignore
 
     directoryTrees
     |> Seq.collect flatten
-    |> Seq.filter (fun file -> file.Length <= MaxFileSize)
+    |> Seq.filter (fun file -> file.Length <= maxFileSize)
     |> Seq.iter (fun file ->
         use stream = file.OpenRead()
         use reader = new StreamReader(stream)
@@ -228,7 +225,8 @@ type Args =
       IgnorePath: string option
       Input: Input
       Output: Output
-      OutFile: string option }
+      OutFile: string option
+      MaxFileSize: int }
 
 type Target =
     | GetHelp
@@ -239,6 +237,7 @@ type Reading =
     | ReadingStylesheet
     | ReadingIgnore
     | ReadingOutFile
+    | ReadingMaxFileSize
 
 type ArgsBuilder =
     { Argv: string list
@@ -249,7 +248,8 @@ type ArgsBuilder =
       IgnorePath: string option
       Input: Input option
       Output: Output option
-      OutFile: string option }
+      OutFile: string option
+      MaxFileSize: int option }
 
 let mkArgs builder : Result<Args, string> =
     let mk input =
@@ -258,7 +258,8 @@ let mkArgs builder : Result<Args, string> =
           IgnorePath = builder.IgnorePath
           Input = input
           Output = builder.Output |> Option.defaultValue Pdf
-          OutFile = builder.OutFile }
+          OutFile = builder.OutFile
+          MaxFileSize = builder.MaxFileSize |> Option.defaultValue (1024 * 1000) }
         |> Ok
 
     match builder.Input with
@@ -318,6 +319,13 @@ let parseArgv argv =
                             StylesheetPath = Some arg }
                 | ReadingIgnore -> iter { builder with IgnorePath = Some arg }
                 | ReadingOutFile -> iter { builder with OutFile = Some arg }
+                | ReadingMaxFileSize ->
+                    match Int32.TryParse(arg) with
+                    | true, maxFileSize ->
+                        iter
+                            { builder with
+                                MaxFileSize = Some(maxFileSize * 1024) }
+                    | false, _ -> Error "max file size must be an integer"
             | None ->
                 match arg with
                 | Output format ->
@@ -350,6 +358,13 @@ let parseArgv argv =
                         Error "duplicate -u option"
                     else
                         iter { builder with RemoveClonedRepo = true }
+                | "-fsize" ->
+                    match builder.MaxFileSize with
+                    | Some _ -> Error "max file size specified twice"
+                    | None ->
+                        iter
+                            { builder with
+                                Reading = Some ReadingMaxFileSize }
                 | "-b" ->
                     match builder.Output with
                     | Some Pdf
@@ -376,7 +391,8 @@ let parseArgv argv =
       IgnorePath = None
       Input = None
       Output = None
-      OutFile = None }
+      OutFile = None
+      MaxFileSize = None }
     |> iter
 
 let findGitignore path =
@@ -443,7 +459,7 @@ let runResult =
 
 [<Literal>]
 let help =
-    """dotnet fsi codetopdf <local-path/remote-repo> [-h] [-u] [-html] [-pdf] [-b] [-map <path>] [-style <path>] [-ignore <path>] [-o <path-without-extension>]
+    """dotnet fsi codetopdf <local-path/remote-repo> [-h] [-u] [-html] [-pdf] [-b] [-map <path>] [-style <path>] [-ignore <path>] [-o <path-without-extension>] [-fsize <int>]
     -local-path: a path
     -github-repo: https://<host>/<owner>/<repo> / git@<host>:<owner>/<repo>.git
     -help: display this message. omit any other option
@@ -454,6 +470,7 @@ let help =
     -map: specify a json file use to determine file's language from its extension. default to "extmap.json"
     -style: specify a css file injected into the output. default to "styles.css"
     -ignore: specify a .gitignore-like file to exclude unwanted files. default to directory's .gitignore (if it has)
+    -fsize: specify the max file size (KB). default to 1000KB.
     -o: output the production file to path-without-extension + .html/.pdf"""
 
 let work (args: Args) =
@@ -464,7 +481,7 @@ let work (args: Args) =
         let! excluded = args.IgnorePath |> Option.orElse gitignorePath |> mkExcluded
 
         let html =
-            generateHtml stylesheet excluded (getLanguage languageMap) dir (mkTitle args.Input)
+            generateHtml args.MaxFileSize stylesheet excluded (getLanguage languageMap) dir (mkTitle args.Input)
 
         do! save html args.OutFile args.Input args.Output
 
