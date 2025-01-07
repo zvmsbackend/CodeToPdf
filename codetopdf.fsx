@@ -30,6 +30,9 @@ let result = ResultBuilder()
 let highlight code language =
     StaticHighlightJSService.HighlightAsync(code, language).Result
 
+let fromSourceDir path =
+    Path.Combine(__SOURCE_DIRECTORY__, path)
+
 let rec rmdir path attempts =
     try
         Directory.Delete(path, true)
@@ -253,8 +256,8 @@ type ArgsBuilder =
 
 let mkArgs builder : Result<Args, string> =
     let mk input =
-        { LanguageMapPath = builder.LanguageMapPath |> Option.defaultValue "extmap.json"
-          StylesheetPath = builder.StylesheetPath |> Option.defaultValue "styles.css"
+        { LanguageMapPath = builder.LanguageMapPath |> Option.defaultValue (fromSourceDir "extmap.json")
+          StylesheetPath = builder.StylesheetPath |> Option.defaultValue (fromSourceDir "styles.css")
           IgnorePath = builder.IgnorePath
           Input = input
           Output = builder.Output |> Option.defaultValue Pdf
